@@ -1,0 +1,40 @@
+.toolbar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.position {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+a {
+  color: #10672e;
+  opacity: 1s;
+}
+a:hover {
+  color: #294a35;
+}
+.error {
+  color: red;
+}
+.input-file {
+  width: 100%;
+  padding: 10px 2px;
+}
+input::file-selector-button {
+  font-size: 16px;
+  padding: 10px;
+}
+button {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+button:focus,
+button:active {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
