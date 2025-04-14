@@ -11,13 +11,11 @@ const ProtectedRoute = ({ children }) => {
           "http://localhost:8081/api/v1/verify-token",
           {
             method: "GET",
-            credentials: "include", // important to send cookies
+            credentials: "include",
           }
         );
 
         const data = await response.json();
-        console.log("Token verification response:", data);
-
         if (data?.success === true) {
           setIsAuth(true);
         } else {

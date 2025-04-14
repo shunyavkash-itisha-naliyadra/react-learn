@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "../css/login.css";
 import {
   AppBar,
@@ -38,6 +38,8 @@ export default function ChatApp() {
   const [input, setInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const chatContainerRef = useRef(null);
+
   useEffect(() => {
     const fetchContacts = async () => {
       try {
@@ -49,7 +51,6 @@ export default function ChatApp() {
           }
         );
         const data = await response.json();
-        console.log("data?.data?.accounts", data?.data);
         setSend(data?.data?.loginUser);
 
         if (data?.data?.accounts?.length > 0) {
@@ -72,8 +73,6 @@ export default function ChatApp() {
     };
     const fetchMessages = async () => {
       if (!selectedContact || !send) return;
-      console.log("selectedContact", selectedContact, send);
-
       try {
         const response = await fetch(
           `http://localhost:8081/api/v1/message/getById?senderId=${send}&receiverId=${selectedContact._id}`,
@@ -84,10 +83,7 @@ export default function ChatApp() {
         );
         const data = await response.json();
         if (data?.success === true) {
-          // Directly use the messages array from the API response
           setMessages(data?.data);
-        } else {
-          setAlert({ msg: "Failed to fetch messages", type: "error" });
         }
       } catch (error) {
         console.error("Error fetching messages:", error);
@@ -116,7 +112,6 @@ export default function ChatApp() {
           credentials: "include",
           body: JSON.stringify(messageData),
         });
-
         const savedMessage = await response.json();
         if (response.ok) {
           socket.emit("sendMessage", savedMessage.data);
@@ -140,34 +135,45 @@ export default function ChatApp() {
     };
   }, []);
   useEffect(() => {
-    // Listen for real-time updates for user online/offline status
-    socket.on("userOnline", (userId) => {
-      setContacts((prevContacts) =>
-        prevContacts.map((contact) =>
-          contact._id === userId || contact.id === userId
-            ? { ...contact, isOnline: true }
-            : contact
-        )
-      );
-    });
+    if (send) {
+      socket.emit("userOnline", send);
+    }
+  }, [send]);
 
-    socket.on("userOffline", (userId) => {
-      setContacts((prevContacts) =>
-        prevContacts.map((contact) =>
-          contact._id === userId || contact.id === userId
-            ? { ...contact, isOnline: false }
-            : contact
-        )
-      );
-    });
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
 
-    return () => {
-      // Clean up listeners on component unmount
-      socket.off("userOnline");
-      socket.off("userOffline");
-    };
-  }, []);
+  // useEffect(() => {
+  //   if (send) {
+  //     socket.emit("joinRoom", { userId: send });
+  //   }
 
+  //   socket.on("incomingCall", ({ from, offer }) => {
+  //     console.log(`Incoming call from ${from}`, offer);
+  //   });
+
+  //   socket.on("callAnswered", ({ answer }) => {
+  //     console.log("Call answered:", answer);
+  //   });
+
+  //   socket.on("iceCandidate", ({ candidate }) => {
+  //     console.log("Received ICE candidate:", candidate);
+  //   });
+
+  //   return () => {
+  //     socket.off("incomingCall");
+  //     socket.off("callAnswered");
+  //     socket.off("iceCandidate");
+  //   };
+  // }, [send]);
+  // const initiateCall = (contactId) => {
+  //   const offer = {};
+  //   socket.emit("callUser", { to: contactId, offer, from: send });
+  // };
   const handleLogout = async () => {
     try {
       const response = await logOutApi();
@@ -184,6 +190,62 @@ export default function ChatApp() {
       console.error("Logout failed:", error);
       setAlert({ message: "Logout failed. Please try again.", type: "error" });
     }
+  };
+  const constraints = {
+    video: true,
+    audio: true,
+  };
+  navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+    console.log("stream", stream);
+    const videoTracks = stream.getVideoTracks();
+    console.log("videoTracks", videoTracks);
+    console.log("Got stream with constraints:", constraints);
+    console.log(`Using video device: ${videoTracks[0].label}`);
+    stream.onremovetrack = () => {
+      console.log("Stream ended");
+    };
+    video.srcObject = stream;
+  });
+
+  // Utility function to categorize messages by date
+  const categorizeMessages = (messages) => {
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    const formatDate = (date) =>
+      date.toLocaleDateString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+
+    const categorized = {
+      today: [],
+      yesterday: [],
+      others: {},
+    };
+
+    messages.forEach((msg) => {
+      const messageDate = new Date(msg.createdAt);
+      const isToday = messageDate.toDateString() === today.toDateString();
+      const isYesterday =
+        messageDate.toDateString() === yesterday.toDateString();
+
+      if (isYesterday) {
+        categorized.yesterday.push(msg);
+      } else if (isToday) {
+        categorized.today.push(msg);
+      } else {
+        const formattedDate = formatDate(messageDate);
+        if (!categorized.others[formattedDate]) {
+          categorized.others[formattedDate] = [];
+        }
+        categorized.others[formattedDate].push(msg);
+      }
+    });
+
+    return categorized;
   };
 
   return (
@@ -321,7 +383,11 @@ export default function ChatApp() {
                   );
                 })()}
                 <Box sx={{ marginLeft: "auto" }}>
-                  <IconButton>
+                  <IconButton
+                    onClick={() =>
+                      initiateCall(selectedContact._id || selectedContact.id)
+                    }
+                  >
                     <VideoCallIcon />
                   </IconButton>
                   <IconButton>
@@ -338,49 +404,165 @@ export default function ChatApp() {
             <Box
               flex={1}
               p={2}
-              sx={{ overflowY: "auto", background: "#ECE5DD" }}
+              ref={chatContainerRef}
+              sx={{
+                overflowY: "auto",
+                background: "#ECE5DD",
+                display: "flex",
+                flexDirection: "column", // Adjusted to render messages in correct order
+              }}
             >
               {messages && messages.length > 0 ? (
-                messages
-                  .filter(
-                    (msg) =>
-                      msg &&
-                      ((msg.sender === send &&
-                        msg.receiver === selectedContact?._id) ||
-                        (msg.receiver === send &&
-                          msg.sender === selectedContact?._id))
-                  )
-                  .map((msg, index) => {
-                    const isSender = msg.sender === send;
-                    console.log("Filtered Message:", msg); // Debugging log
+                (() => {
+                  const categorizedMessages = categorizeMessages(
+                    messages.filter(
+                      (msg) =>
+                        msg &&
+                        ((msg.sender === send &&
+                          msg.receiver === selectedContact?._id) ||
+                          (msg.receiver === send &&
+                            msg.sender === selectedContact?._id))
+                    )
+                  );
 
-                    return (
-                      <Box
-                        key={index}
-                        display="flex"
-                        justifyContent={isSender ? "flex-end" : "flex-start"}
-                        mb={1}
-                      >
-                        <Paper
-                          sx={{
-                            maxWidth: "60%",
-                            padding: "8px 12px",
-                            borderRadius: 2,
-                            backgroundColor: isSender ? "#DCF8C6" : "#FFFFFF",
-                            boxShadow: 1,
-                          }}
-                        >
-                          <Typography>{msg.content}</Typography>
-                        </Paper>
-                      </Box>
-                    );
-                  })
+                  return (
+                    <>
+                      {categorizedMessages.yesterday.length > 0 && (
+                        <>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              color: "#888",
+                              textAlign: "center",
+                              marginBottom: 1,
+                            }}
+                          >
+                            Yesterday
+                          </Typography>
+                          {categorizedMessages.yesterday.map((msg, index) => {
+                            const isSender = msg.sender === send;
+                            return (
+                              <Box
+                                key={`yesterday-${index}`}
+                                display="flex"
+                                justifyContent={
+                                  isSender ? "flex-end" : "flex-start"
+                                }
+                                mb={1}
+                              >
+                                <Paper
+                                  sx={{
+                                    maxWidth: "60%",
+                                    padding: "8px 12px",
+                                    borderRadius: 2,
+                                    backgroundColor: isSender
+                                      ? "#DCF8C6"
+                                      : "#FFFFFF",
+                                    boxShadow: 1,
+                                  }}
+                                >
+                                  <Typography>{msg.content}</Typography>
+                                </Paper>
+                              </Box>
+                            );
+                          })}
+                        </>
+                      )}
+                      {categorizedMessages.today.length > 0 && (
+                        <>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              color: "#888",
+                              textAlign: "center",
+                              marginBottom: 1,
+                            }}
+                          >
+                            Today
+                          </Typography>
+                          {categorizedMessages.today.map((msg, index) => {
+                            const isSender = msg.sender === send;
+                            return (
+                              <Box
+                                key={`today-${index}`}
+                                display="flex"
+                                justifyContent={
+                                  isSender ? "flex-end" : "flex-start"
+                                }
+                                mb={1}
+                              >
+                                <Paper
+                                  sx={{
+                                    maxWidth: "60%",
+                                    padding: "8px 12px",
+                                    borderRadius: 2,
+                                    backgroundColor: isSender
+                                      ? "#DCF8C6"
+                                      : "#FFFFFF",
+                                    boxShadow: 1,
+                                  }}
+                                >
+                                  <Typography>{msg.content}</Typography>
+                                </Paper>
+                              </Box>
+                            );
+                          })}
+                        </>
+                      )}
+                      {Object.keys(categorizedMessages.others).map(
+                        (date, index) => (
+                          <React.Fragment key={`others-${index}`}>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                color: "#888",
+                                textAlign: "center",
+                                marginBottom: 1,
+                              }}
+                            >
+                              {date}
+                            </Typography>
+                            {categorizedMessages.others[date].map(
+                              (msg, msgIndex) => {
+                                const isSender = msg.sender === send;
+                                return (
+                                  <Box
+                                    key={`others-${date}-${msgIndex}`}
+                                    display="flex"
+                                    justifyContent={
+                                      isSender ? "flex-end" : "flex-start"
+                                    }
+                                    mb={1}
+                                  >
+                                    <Paper
+                                      sx={{
+                                        maxWidth: "60%",
+                                        padding: "8px 12px",
+                                        borderRadius: 2,
+                                        backgroundColor: isSender
+                                          ? "#DCF8C6"
+                                          : "#FFFFFF",
+                                        boxShadow: 1,
+                                      }}
+                                    >
+                                      <Typography>{msg.content}</Typography>
+                                    </Paper>
+                                  </Box>
+                                );
+                              }
+                            )}
+                          </React.Fragment>
+                        )
+                      )}
+                    </>
+                  );
+                })()
               ) : (
                 <Typography
                   variant="body2"
                   sx={{ color: "#888", textAlign: "center" }}
                 >
-                  No messages to display.
+                  Not found messages.
                 </Typography>
               )}
             </Box>
