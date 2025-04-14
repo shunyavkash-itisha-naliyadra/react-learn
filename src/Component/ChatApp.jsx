@@ -39,6 +39,7 @@ export default function ChatApp() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const chatContainerRef = useRef(null);
+  const [unreadMessages, setUnreadMessages] = useState({}); // Track unread messages per contact
 
   useEffect(() => {
     const fetchContacts = async () => {
@@ -129,11 +130,20 @@ export default function ChatApp() {
   useEffect(() => {
     socket.on("receiveMessage", (data) => {
       setMessages((prevMessages) => [...prevMessages, data]);
+
+      // Update unread messages count if the message is from a different contact
+      if (data.sender !== selectedContact?._id) {
+        setUnreadMessages((prevUnread) => ({
+          ...prevUnread,
+          [data.sender]: (prevUnread[data.sender] || 0) + 1,
+        }));
+      }
     });
+
     return () => {
       socket.off("receiveMessage");
     };
-  }, []);
+  }, [selectedContact]);
   useEffect(() => {
     if (send) {
       socket.emit("userOnline", send);
@@ -294,12 +304,19 @@ export default function ChatApp() {
             const profilePhotoPath =
               contact?.profilePhoto || "default-profile.jpg";
             const imageUrl = `http://localhost:8081/${profilePhotoPath}`;
+            const unreadCount = unreadMessages[contact._id || contact.id] || 0;
 
             return (
               <ListItem
                 button
                 key={contact.id || contact._id}
-                onClick={() => setSelectedContact(contact)}
+                onClick={() => {
+                  setSelectedContact(contact);
+                  setUnreadMessages((prevUnread) => ({
+                    ...prevUnread,
+                    [contact._id || contact.id]: 0, // Reset unread count for selected contact
+                  }));
+                }}
               >
                 <Avatar src={imageUrl} sx={{ marginInlineEnd: "10px" }} />
                 <ListItemText
@@ -325,6 +342,23 @@ export default function ChatApp() {
                           })()
                   }
                 />
+                {unreadCount > 0 && (
+                  <Box
+                    sx={{
+                      background: "#25D366",
+                      color: "#fff",
+                      borderRadius: "50%",
+                      width: 24,
+                      height: 24,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginLeft: "auto",
+                    }}
+                  >
+                    <Typography variant="caption">{unreadCount}</Typography>
+                  </Box>
+                )}
               </ListItem>
             );
           })}
